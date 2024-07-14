@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>커낵션스</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #ffffff;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 {
+            font-size: 28px;
+            margin: 0;
+        }
+        .date {
+            font-size: 16px;
+            color: #666;
+        }
+        .instruction {
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .button {
+            background-color: #f1f6d5;
+            border: none;
+            border-radius: 5px;
+            padding: 15px 5px;
+            font-size: 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: bold;
+        }
+        .button:hover {
+            background-color: #d9d9d9;
+        }
+        .button.selected {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .button.correct {
+            background-color: #4CAF50;
+            border-radius: 5px;
+            color: white;
+            cursor: default;
+        }
+        .mistakes {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        .control-button {
+            padding: 10px 20px;
+            font-size: 14px;
+            cursor: pointer;
+            background-color: #ffffff;
+            color: #333;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+        }
+        .control-button:hover {
+            background-color: #e0e0e0;
+        }
+        .icons {
+            display: flex;
+            gap: 10px;
+        }
+        .icon {
+            width: 24px;
+            height: 24px;
+            background-color: #333;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 10px 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1000;
+        }
+        .notification.show {
+            opacity: 1;
+        }
+        .notification.success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .category {
+            grid-column: 1 / span 4;
+            text-align: center;
+            font-weight: bold;
+            border-radius: 5px;
+            padding: 15px 5px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+        }
+        .grid {
+            position: static;
+        }
+        .smaller {
+            font-size: 10px;
+        }
+
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        .fade-out {
+            animation: fadeOut 1s forwards;
+        }
+
+        .fade-in {
+            animation: fadeOut 1s reverse;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>커낵션스</h1>
+        <div class="date" id="current-date"></div>
+    </header>
+    <hr>
+    <div class="instruction">4명씩 4개의 그룹을 만들어보세요!</div>
+    <div class="grid" id="word-grid"></div>
+    <div class="mistakes" id="mistakes">남은 실수: ⚫⚫⚫⚫</div>
+    <div class="controls">
+        <button class="control-button" id="shuffle">혼합</button>
+        <button class="control-button" id="deselect">선택 취소</button>
+        <button class="control-button" id="submit">입력</button>
+    </div>
+    <div id="notification" class="notification"></div>
+
+    <script>
+        let words_array = [];
+        let categories = [];
+        let individual_words = [];
+        let selectedWords = [];
+        let mistakes = 4;
+        let solvedCategories = [];
+
+        async function fetchConnections() {
+            try {
+                const response = await fetch('http://127.0.0.1:5000/connections');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch connections');
+                }
+                const data = await response.json();
+                words_array = Object.values(data);
+                words_array = words_array.flat();
+                for (let i = 0; i < 4; i++) {
+                    categories.push(words_array[i]);
+                }
+                for (let i = 4; i < words_array.length; i++) {
+                    for (let j = 0; j < 4; j++) {
+                        individual_words.push({
+                            id: `word-${i}-${j}`,
+                            text: words_array[i][j],
+                            category: i - 4
+                        });
+                    }
+                }
+                createGrid();
+            } catch (error) {
+                console.error('Error:', error);
+                showNotification('데이터를 불러오는 데 실패했습니다. 나중에 다시 시도해주세요.');
+            }
+        }
+
+        function createGrid() {
+            const grid = document.getElementById('word-grid');
+            grid.innerHTML = '';
+            individual_words.forEach(word => {
+                const button = document.createElement('button');
+                button.textContent = word.text;
+                button.className = 'button';
+                button.dataset.id = word.id;
+                button.addEventListener('click', () => toggleSelection(button, word));
+                grid.appendChild(button);
+                shuffle()
+            });
+        }
+
+        function toggleSelection(button, word) {
+            if (button.classList.contains('correct')) return;
+            
+            const index = selectedWords.findIndex(w => w.id === word.id);
+            if (index !== -1) {
+                selectedWords.splice(index, 1);
+                button.classList.remove('selected');
+            } else if (selectedWords.length < 4) {
+                selectedWords.push(word);
+                button.classList.add('selected');
+            }
+        }
+
+        function shuffle() {
+            const grid = document.getElementById('word-grid');
+            const buttons = Array.from(grid.children).filter(child => !child.classList.contains('correct') && !child.classList.contains('category'));
+            for (let i = buttons.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                grid.insertBefore(buttons[j], buttons[i]);
+            }
+        }
+
+        function deselectAll() {
+            selectedWords = [];
+            document.querySelectorAll('.button:not(.correct)').forEach(button => {
+                button.classList.remove('selected');
+            });
+        }
+
+        function submit() {
+            if (selectedWords.length !== 4) {
+                showNotification('4개의 단어를 선택해 주세요.');
+                return;
+            }
+            
+            if (checkAnswer()) {
+                handleCorrectAnswer();
+            } else {
+                handleIncorrectAnswer();
+            }
+        }
+
+        function checkAnswer() {
+            const category = selectedWords[0].category;
+            return selectedWords.every(word => word.category === category);
+        }
+
+        function handleCorrectAnswer() {
+            const categoryIndex = selectedWords[0].category;
+            const categoryWords = individual_words.filter(word => word.category === categoryIndex);
+            
+            const grid = document.getElementById('word-grid');
+            const correctButtons = [];
+
+            document.querySelectorAll('.button').forEach(button => {
+                const wordId = button.dataset.id;
+                if (categoryWords.some(word => word.id === wordId)) {
+                    button.classList.add('correct', 'fade-out');
+                    button.classList.remove('selected');
+                    correctButtons.push(button);
+                }
+            });
+
+            solvedCategories.push(categoryIndex);
+
+            setTimeout(() => {
+                // add category label
+                const categoryLabel = document.createElement('div');
+                categoryLabel.textContent = categoryWords.map(w => w.text).join(", ") + ": " + categories[categoryIndex];
+                categoryLabel.className = 'category fade-in';
+                categoryLabel.style.gridRow = solvedCategories.length;
+                grid.appendChild(categoryLabel);
+
+                // Remove faded-out buttons
+                correctButtons.forEach(button => button.remove());
+
+                if (solvedCategories.length === 4) {
+                    showNotification('축하합니다! 모든 카테고리를 맞추셨습니다!', true);
+                } else {
+                    showNotification('정답입니다!', true);
+                    deselectAll();
+                }
+            }, 1000);
+        }
+
+        function handleIncorrectAnswer() {
+            mistakes--;
+            updateMistakes();
+            deselectAll();
+
+            if (mistakes === 0) {
+                showNotification('게임 오버! 더 이상 시도할 수 없습니다.');
+                setTimeout(revealAllAnswers, 3000);
+            } else {
+                showNotification('틀렸습니다. 다시 시도해보세요.');
+            }
+        }
+
+        function updateMistakes() {
+            const mistakesElement = document.getElementById('mistakes');
+            mistakesElement.textContent = `남은 실수: ${'⚫'.repeat(mistakes)}`;
+        }
+
+        function revealAllAnswers() {
+            const grid = document.getElementById('word-grid');
+            const currentButtons = Array.from(grid.querySelectorAll('.button'));
+
+            currentButtons.forEach(button => {
+                button.classList.add('fade-out');
+            });
+
+            setTimeout(() => {
+                grid.innerHTML = '';
+
+                for (let i = 0; i < 4; i++) {
+                    const categoryWords = individual_words.filter(word => word.category === i);
+
+                    const categoryLabel = document.createElement('div');
+                    categoryLabel.textContent = categoryWords.map(w => w.text).join(", ") + ": " + categories[i];
+                    categoryLabel.className = 'category fade-in';
+                    categoryLabel.style.gridRow = i + 1;
+                    grid.appendChild(categoryLabel);
+                }
+            }, 1000);
+        }
+
+        function showNotification(message, isSuccess = false) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.classList.add('show');
+            if (isSuccess) {
+                notification.classList.add('success');
+            } else {
+                notification.classList.remove('success');
+            }
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        function setCurrentDate() {
+            const dateElement = document.getElementById('current-date');
+            const currentDate = new Date();
+            dateElement.textContent = currentDate.toLocaleDateString('ko-KR', { 
+                month: 'long', 
+                day: 'numeric', 
+                year: 'numeric' 
+            });
+        }
+
+        // Initialize the game
+        fetchConnections().then(() => {
+            setCurrentDate();
+            document.getElementById('shuffle').addEventListener('click', shuffle);
+            document.getElementById('deselect').addEventListener('click', deselectAll);
+            document.getElementById('submit').addEventListener('click', submit);
+        });
+    </script>
+</body>
+</html>
